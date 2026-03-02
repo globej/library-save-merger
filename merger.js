@@ -409,6 +409,13 @@
             // due to strict validation), we clone the original left manifest and slightly alter it.
             statusCallback("Packaging components...");
             let finalManifest = {};
+
+            // Generate SHA-256 hash of the final database (required by mobile app validation)
+            const finalDbData = mergedDb.export();
+            const hashBuffer = await crypto.subtle.digest('SHA-256', finalDbData);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const dbHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
             try {
                 const manifestFile = leftZip.file("manifest.json");
                 if (manifestFile) {
@@ -423,8 +430,9 @@
                     if (finalManifest.creationDate) {
                         finalManifest.creationDate = now.toISOString().split('T')[0];
                     }
-                    if (finalManifest.userDataBackup && finalManifest.userDataBackup.lastModifiedDate) {
+                    if (finalManifest.userDataBackup) {
                         finalManifest.userDataBackup.lastModifiedDate = now.toISOString();
+                        finalManifest.userDataBackup.hash = dbHash;
                     }
                 }
             } catch (e) {
@@ -436,6 +444,7 @@
                     type: 0,
                     userDataBackup: {
                         lastModifiedDate: new Date().toISOString(),
+                        hash: dbHash,
                         deviceName: "LibraryMergerWeb",
                         databaseName: "userData.db",
                         schemaVersion: schemaVersion
@@ -443,13 +452,17 @@
                 };
             }
 
-            const finalDbData = mergedDb.export();
-
             const finalZip = new JSZip();
             finalZip.file("userData.db", finalDbData);
+
+            // Add required default thumbnail (required by JW Library on Android/iOS)
+            if (typeof defaultThumbnailBase64 !== 'undefined') {
+                finalZip.file("default_thumbnail.png", defaultThumbnailBase64, { base64: true });
+            }
+
             // Also copy all other possible system files from the left zip (like .hash if they exist in future versions)
             leftZip.folder("").forEach((relativePath, file) => {
-                if (relativePath !== "userData.db" && relativePath !== "manifest.json") {
+                if (relativePath !== "userData.db" && relativePath !== "manifest.json" && relativePath !== "default_thumbnail.png") {
                     finalZip.file(relativePath, file.async("uint8array"));
                 }
             });
