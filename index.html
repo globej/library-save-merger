@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Library Save Merger</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Load JSZip -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Load SQL.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+</head>
+
+<body>
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+
+    <main class="glass-container">
+        <div class="lang-switcher">
+            <button id="lang-btn">🇫🇷 FR</button>
+        </div>
+        <header>
+            <h1 data-i18n="title">Library Save Merger</h1>
+            <p data-i18n="subtitle">Effortlessly combine two .jwlibrary backup files directly in your browser.</p>
+            <div class="privacy-badge">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <span data-i18n="privacyBadge">100% Local & Private. No data is sent to the internet.</span>
+            </div>
+        </header>
+
+        <form id="merge-form">
+
+            <div class="file-inputs-container">
+                <div class="file-drop-area" id="drop-area-left">
+                    <button type="button" class="remove-file-btn" aria-label="Remove file">&minus;</button>
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="12" y1="18" x2="12" y2="12"></line>
+                        <line x1="9" y1="15" x2="15" y2="15"></line>
+                    </svg>
+                    <span class="file-msg" data-i18n="chooseLeft">Choose <strong>Left Backup</strong> or drag it
+                        here</span>
+                    <span class="file-name" id="file-name-left" data-i18n="noFile">No file chosen</span>
+                    <input type="file" id="leftFile" accept=".jwlibrary" required>
+                </div>
+
+                <div class="file-drop-area" id="drop-area-right">
+                    <button type="button" class="remove-file-btn" aria-label="Remove file">&minus;</button>
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="12" y1="18" x2="12" y2="12"></line>
+                        <line x1="9" y1="15" x2="15" y2="15"></line>
+                    </svg>
+                    <span class="file-msg" data-i18n="chooseRight">Choose <strong>Right Backup</strong> or drag it
+                        here</span>
+                    <span class="file-name" id="file-name-right" data-i18n="noFile">No file chosen</span>
+                    <input type="file" id="rightFile" accept=".jwlibrary" required>
+                </div>
+            </div>
+
+            <div class="resolvers-section">
+                <h2 data-i18n="resolversTitle">Conflict Resolvers</h2>
+                <p class="section-desc" data-i18n="resolversDesc">Choose how conflicts between the two files should be
+                    resolved automatically.</p>
+
+                <div class="resolvers-grid">
+                    <div class="input-group">
+                        <label data-i18n="bookmarks">Bookmarks</label>
+                        <div class="switch-container">
+                            <button type="button" class="switch-btn active" data-target="bookmarkResolver"
+                                data-value="chooseLeft" data-i18n="keepLeft">Keep Left</button>
+                            <button type="button" class="switch-btn" data-target="bookmarkResolver"
+                                data-value="chooseRight" data-i18n="keepRight">Keep Right</button>
+                            <input type="hidden" id="bookmarkResolver" value="chooseLeft">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label data-i18n="markings">Markings</label>
+                        <div class="switch-container">
+                            <button type="button" class="switch-btn active" data-target="markingResolver"
+                                data-value="chooseLeft" data-i18n="keepLeft">Keep Left</button>
+                            <button type="button" class="switch-btn" data-target="markingResolver"
+                                data-value="chooseRight" data-i18n="keepRight">Keep Right</button>
+                            <input type="hidden" id="markingResolver" value="chooseLeft">
+                        </div>
+                    </div>
+
+                    <div class="input-group note-group">
+                        <label data-i18n="notes">Notes</label>
+                        <div class="switch-container">
+                            <button type="button" class="switch-btn active" data-target="noteResolver"
+                                data-value="chooseNewest" data-i18n="keepNewest">Keep Newest</button>
+                            <button type="button" class="switch-btn" data-target="noteResolver" data-value="chooseLeft"
+                                data-i18n="keepLeft">Keep Left</button>
+                            <button type="button" class="switch-btn" data-target="noteResolver" data-value="chooseRight"
+                                data-i18n="keepRight">Keep Right</button>
+                            <input type="hidden" id="noteResolver" value="chooseNewest">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label data-i18n="inputFields">Input Fields</label>
+                        <div class="switch-container">
+                            <button type="button" class="switch-btn active" data-target="inputFieldResolver"
+                                data-value="chooseLeft" data-i18n="keepLeft">Keep Left</button>
+                            <button type="button" class="switch-btn" data-target="inputFieldResolver"
+                                data-value="chooseRight" data-i18n="keepRight">Keep Right</button>
+                            <input type="hidden" id="inputFieldResolver" value="chooseLeft">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="action-container">
+                <button type="submit" id="submit-btn" class="btn-primary">
+                    <span class="btn-text" data-i18n="mergeBtn">Merge Backups</span>
+                    <div class="loader-spinner" id="loader"></div>
+                </button>
+            </div>
+
+            <div id="status-message" class="status-toast hidden"></div>
+            <div id="error-message" class="error-toast hidden"></div>
+        </form>
+    </main>
+
+    <footer class="app-footer">
+        <div class="footer-credits">
+            <span data-i18n="creditsPrefix">Inspired by</span>
+            <a href="https://github.com/AndreasSko/go-library-merger" target="_blank" rel="noopener noreferrer"
+                class="footer-link">go-library-merger</a>
+        </div>
+        <button id="legal-btn" class="footer-link" data-i18n="legalBtn">Legal Mentions</button>
+        <span class="footer-sep">&bull;</span>
+        <button id="privacy-btn" class="footer-link" data-i18n="privacyBtn">Privacy Policy</button>
+    </footer>
+
+    <!-- Legal/Privacy Modal -->
+    <div id="info-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-content glass-container">
+            <button class="modal-close" id="modal-close">&times;</button>
+            <h2 id="modal-title">Title</h2>
+            <div id="modal-body" class="modal-body-scroll">
+                Content goes here...
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+    <script src="merger.js"></script>
+</body>
+
+</html>
