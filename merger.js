@@ -405,26 +405,55 @@
                 insertTable(mergedDb, t, Cols[t], writeData[t]);
             }
 
-            // Create new manifest
+            // Instead of creating a manifest from scratch (which causes JW Library on mobile to crash
+            // due to strict validation), we clone the original left manifest and slightly alter it.
             statusCallback("Packaging components...");
-            const defaultManifest = {
-                name: "Library Save Merger",
-                creationDate: new Date().toISOString().split('T')[0],
-                version: 1,
-                type: 0,
-                userDataBackup: {
-                    lastModifiedDate: new Date().toISOString(),
-                    deviceName: "LibraryMergerWeb",
-                    databaseName: "userData.db",
-                    schemaVersion: schemaVersion
+            let finalManifest = {};
+            try {
+                const manifestFile = leftZip.file("manifest.json");
+                if (manifestFile) {
+                    const manifestText = await manifestFile.async("string");
+                    finalManifest = JSON.parse(manifestText);
+
+                    // Update only what's necessary, keep original shapes, hashes and device names untouched
+                    finalManifest.name = "Library Save Merger";
+
+                    // Keep original date formats but update them to now
+                    const now = new Date();
+                    if (finalManifest.creationDate) {
+                        finalManifest.creationDate = now.toISOString().split('T')[0];
+                    }
+                    if (finalManifest.userDataBackup && finalManifest.userDataBackup.lastModifiedDate) {
+                        finalManifest.userDataBackup.lastModifiedDate = now.toISOString();
+                    }
                 }
-            };
+            } catch (e) {
+                console.warn("Failed to parse original manifest, falling back to default.", e);
+                finalManifest = {
+                    name: "Library Save Merger",
+                    creationDate: new Date().toISOString().split('T')[0],
+                    version: 1,
+                    type: 0,
+                    userDataBackup: {
+                        lastModifiedDate: new Date().toISOString(),
+                        deviceName: "LibraryMergerWeb",
+                        databaseName: "userData.db",
+                        schemaVersion: schemaVersion
+                    }
+                };
+            }
 
             const finalDbData = mergedDb.export();
 
             const finalZip = new JSZip();
             finalZip.file("userData.db", finalDbData);
-            finalZip.file("manifest.json", JSON.stringify(defaultManifest, null, 2));
+            // Also copy all other possible system files from the left zip (like .hash if they exist in future versions)
+            leftZip.folder("").forEach((relativePath, file) => {
+                if (relativePath !== "userData.db" && relativePath !== "manifest.json") {
+                    finalZip.file(relativePath, file.async("uint8array"));
+                }
+            });
+            finalZip.file("manifest.json", JSON.stringify(finalManifest, null, 2));
 
             statusCallback("Generating `.jwlibrary` file...");
             // Force application/octet-stream mimeType so mobile browsers (iOS/Safari) 
