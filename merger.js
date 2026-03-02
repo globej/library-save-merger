@@ -427,7 +427,13 @@
             finalZip.file("manifest.json", JSON.stringify(defaultManifest, null, 2));
 
             statusCallback("Generating `.jwlibrary` file...");
-            return await finalZip.generateAsync({ type: "blob", compression: "DEFLATE" });
+            // Force application/octet-stream mimeType so mobile browsers (iOS/Safari) 
+            // don't automatically append .zip to the download file name.
+            return await finalZip.generateAsync({
+                type: "blob",
+                compression: "DEFLATE",
+                mimeType: "application/octet-stream"
+            });
 
         } finally {
             // Always close databases to free WebAssembly memory, even if an error occurred

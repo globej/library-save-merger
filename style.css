@@ -220,6 +220,8 @@ html::after {
     cursor: pointer;
     transition: all 0.3s ease;
     backdrop-filter: blur(8px);
+    /* Windows emoji fallback so flags render instead of letters */
+    font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 #lang-btn:hover {
@@ -790,4 +792,153 @@ header p {
 
 .modal-body-scroll ul {
     padding-left: 1.5rem;
+}
+
+/* =========================================
+   Mobile Optimization
+   ========================================= */
+@media (max-width: 768px) {
+    body {
+        padding: 1rem 0.5rem;
+    }
+
+    .glass-container {
+        padding: 1.5rem 1.25rem;
+        border-radius: 20px;
+    }
+
+    header {
+        margin-bottom: 2rem;
+        padding-top: 1.5rem;
+        /* Make room for the absolutely positioned lang button */
+    }
+
+    header h1 {
+        font-size: 2rem;
+    }
+
+    header p {
+        font-size: 1rem;
+        line-height: 1.4;
+    }
+
+    .privacy-badge {
+        margin-top: 0.75rem;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    .file-inputs-container {
+        flex-direction: column;
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .file-drop-area {
+        height: 140px;
+        /* Reduced height to save vertical space */
+        padding: 1rem;
+    }
+
+    .icon {
+        width: 32px;
+        height: 32px;
+        margin-bottom: 0.5rem;
+    }
+
+    .file-msg,
+    .file-name {
+        font-size: 0.85rem;
+    }
+
+    .resolvers-section {
+        padding: 1.25rem;
+    }
+
+    h2 {
+        font-size: 1.25rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .section-desc {
+        font-size: 0.85rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .resolvers-grid {
+        gap: 1rem;
+        /* Tighter gap between rows */
+    }
+
+    .input-group {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .input-group label {
+        font-size: 0.9rem;
+        min-width: unset;
+    }
+
+    .switch-container {
+        width: 100%;
+        padding: 3px;
+        /* Slightly tighter */
+    }
+
+    .switch-btn {
+        padding: 0.5rem 0.25rem;
+        font-size: 0.8rem;
+    }
+
+    .btn-primary {
+        padding: 0.8rem 2rem;
+        font-size: 1rem;
+    }
+
+    .lang-switcher {
+        /* Move it higher and more to the right to avoid the title */
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+
+    .lang-switcher button {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .app-footer {
+        margin-top: 1.5rem;
+        font-size: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .footer-sep {
+        display: none;
+        /* Hide bullets, layout is vertical now */
+    }
+}
+
+@media (max-width: 480px) {
+    header h1 {
+        font-size: 1.75rem;
+    }
+
+    .blob-1 {
+        width: 300px;
+        height: 300px;
+    }
+
+    .blob-2 {
+        width: 250px;
+        height: 250px;
+    }
+
+    .blob-3 {
+        width: 200px;
+        height: 200px;
+    }
 }
