@@ -1,4 +1,4 @@
-# JW Library Merger Web
+# JW Library® Merger Web
 
 Une application web simple et élégante permettant de fusionner deux fichiers de sauvegarde `.jwlibrary` directement depuis votre navigateur. Aucune installation ni serveur n'est nécessaire !
 
