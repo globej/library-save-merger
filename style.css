@@ -253,6 +253,7 @@ header h1 {
     font-weight: 700;
     margin-bottom: 0.75rem;
     background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.02em;
@@ -327,29 +328,29 @@ header p {
 }
 
 .badge-a {
-    color: #60a5fa;
-    /* bright blue */
-    background: rgba(59, 130, 246, 0.15);
-    border: 1px solid rgba(59, 130, 246, 0.25);
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
+    color: #0ea5e9;
+    /* Sky-500: brighter cyan */
+    background: rgba(14, 165, 233, 0.12);
+    border: 1px solid rgba(14, 165, 233, 0.2);
+    box-shadow: 0 0 15px rgba(14, 165, 233, 0.1);
 }
 
 .badge-b {
-    color: #a78bfa;
-    /* bright violet */
-    background: rgba(139, 92, 246, 0.15);
-    border: 1px solid rgba(139, 92, 246, 0.25);
-    box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+    color: #f59e0b;
+    /* Amber-500: vivid orange-yellow */
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.1);
 }
 
 .badge-text-a {
-    color: #60a5fa;
+    color: #0ea5e9;
     font-weight: 600;
     transition: all 0.3s ease;
 }
 
 .badge-text-b {
-    color: #a78bfa;
+    color: #f59e0b;
     font-weight: 600;
     transition: all 0.3s ease;
 }
@@ -588,19 +589,22 @@ header p {
 
 .switch-btn.active {
     color: white;
-    background: linear-gradient(135deg, #0d9488, #0f766e);
-    border: 1px solid rgba(20, 184, 166, 0.35);
-    box-shadow: 0 4px 15px -5px rgba(20, 184, 166, 0.5);
+    /* Newest -> Deep Emerald Teal */
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    box-shadow: 0 4px 15px -5px rgba(16, 185, 129, 0.5);
 }
 
 .switch-btn.active.active-a {
-    background: linear-gradient(135deg, var(--accent-1), #2563eb);
-    box-shadow: 0 4px 15px -5px rgba(59, 130, 246, 0.6);
+    /* Sky Cyan */
+    background: linear-gradient(135deg, #0284c7, #0369a1);
+    box-shadow: 0 4px 15px -5px rgba(2, 132, 199, 0.6);
 }
 
 .switch-btn.active.active-b {
-    background: linear-gradient(135deg, var(--accent-2), #7c3aed);
-    box-shadow: 0 4px 15px -5px rgba(139, 92, 246, 0.6);
+    /* Rich Amber */
+    background: linear-gradient(135deg, #d97706, #b45309);
+    box-shadow: 0 4px 15px -5px rgba(217, 119, 6, 0.6);
 }
 
 /* Submit Button */
