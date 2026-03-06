@@ -6,8 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
             subtitle: "Effortlessly combine two .jwlibrary backup files directly in your browser.",
             privacyBadge: "100% Local & Private. No data is sent to the internet.",
             warningText: "Warning: Always keep a safe copy of your original .jwlibrary files before merging to prevent any accidental data loss.",
-            chooseLeft: "Choose <strong>Left Backup</strong> or drag it here",
-            chooseRight: "Choose <strong>Right Backup</strong> or drag it here",
+            chooseLeft: "Choose <strong class='backup-badge badge-a'>Backup A</strong> or drag it here",
+            chooseRight: "Choose <strong class='backup-badge badge-b'>Backup B</strong> or drag it here",
             noFile: "No file chosen",
             resolversTitle: "Conflict Resolvers",
             resolversDesc: "Choose how conflicts between the two files should be resolved automatically.",
@@ -15,12 +15,12 @@ document.addEventListener('DOMContentLoaded', () => {
             markings: "Markings",
             notes: "Notes",
             inputFields: "Input Fields",
-            keepLeft: "Keep Left",
-            keepRight: "Keep Right",
+            keepLeft: "Keep <span class='badge-text-a'>Backup A</span>",
+            keepRight: "Keep <span class='badge-text-b'>Backup B</span>",
             keepNewest: "Keep Newest",
             mergeBtn: "Merge Backups",
             langBtn: "🇫🇷 FR",
-            errFiles: "Please select both left and right .jwlibrary backup files.",
+            errFiles: "Please select both Backup A and Backup B .jwlibrary files.",
             initWasm: "Initializing WebAssembly... (This might take a moment if it's the first run)",
             errWasm: "Merger logic not loaded correctly. Please refresh.",
             extracting: "Extracting and Merging... Please wait.",
@@ -58,8 +58,8 @@ document.addEventListener('DOMContentLoaded', () => {
             subtitle: "Combinez facilement deux fichiers de sauvegarde .jwlibrary directement dans votre navigateur.",
             privacyBadge: "100% Local & Privé. Aucune donnée n'est envoyée sur internet.",
             warningText: "Attention : Conservez toujours une copie de sécurité de vos fichiers .jwlibrary originaux avant la fusion pour éviter toute perte de données accidentelle.",
-            chooseLeft: "Choisissez la <strong>sauvegarde de gauche</strong> ou glissez-la ici",
-            chooseRight: "Choisissez la <strong>sauvegarde de droite</strong> ou glissez-la ici",
+            chooseLeft: "Choisissez la <strong class='backup-badge badge-a'>sauvegarde A</strong> ou glissez-la ici",
+            chooseRight: "Choisissez la <strong class='backup-badge badge-b'>sauvegarde B</strong> ou glissez-la ici",
             noFile: "Aucun fichier choisi",
             resolversTitle: "Résolution des conflits",
             resolversDesc: "Choisissez comment les conflits entre les deux fichiers doivent être résolus automatiquement.",
@@ -67,12 +67,12 @@ document.addEventListener('DOMContentLoaded', () => {
             markings: "Surlignages",
             notes: "Notes",
             inputFields: "Champs de texte",
-            keepLeft: "Garder Gauche",
-            keepRight: "Garder Droite",
+            keepLeft: "Garder <span class='badge-text-a'>A</span>",
+            keepRight: "Garder <span class='badge-text-b'>B</span>",
             keepNewest: "Garder le plus récent",
             mergeBtn: "Fusionner les sauvegardes",
             langBtn: "🇬🇧 EN",
-            errFiles: "Veuillez sélectionner les fichiers de sauvegarde .jwlibrary de gauche et de droite.",
+            errFiles: "Veuillez sélectionner les fichiers .jwlibrary pour la sauvegarde A et la sauvegarde B.",
             initWasm: "Initialisation (Cela peut prendre un instant la première fois)...",
             errWasm: "La logique de fusion n'a pas été chargée. Veuillez rafraîchir la page.",
             extracting: "Extraction et Fusion... Veuillez patienter.",
@@ -280,12 +280,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetInput = document.getElementById(targetId);
             const value = btn.getAttribute('data-value');
 
-            // Remove active class from siblings
+            // Remove active class and set aria-checked false from siblings
             const container = btn.closest('.switch-container');
-            container.querySelectorAll('.switch-btn').forEach(b => b.classList.remove('active'));
+            container.querySelectorAll('.switch-btn').forEach(b => {
+                b.classList.remove('active', 'active-a', 'active-b');
+                b.setAttribute('aria-checked', 'false');
+            });
 
             // Set active class on clicked button
             btn.classList.add('active');
+
+            // Add custom color class based on the selected value
+            if (value === 'chooseLeft') {
+                btn.classList.add('active-a');
+            } else if (value === 'chooseRight') {
+                btn.classList.add('active-b');
+            }
+
+            btn.setAttribute('aria-checked', 'true');
 
             // Update hidden input value
             if (targetInput) {

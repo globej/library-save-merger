@@ -310,6 +310,56 @@ header p {
     color: #fbbf24;
 }
 
+/* Backup Badges */
+.backup-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9em;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+    margin: 0 0.25em;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.badge-a {
+    color: #60a5fa;
+    /* bright blue */
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
+}
+
+.badge-b {
+    color: #a78bfa;
+    /* bright violet */
+    background: rgba(139, 92, 246, 0.15);
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+}
+
+.badge-text-a {
+    color: #60a5fa;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.badge-text-b {
+    color: #a78bfa;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.switch-btn.active .badge-text-a,
+.switch-btn.active .badge-text-b {
+    color: #ffffff;
+    text-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+}
+
 /* File Inputs */
 .file-inputs-container {
     display: flex;
@@ -538,8 +588,19 @@ header p {
 
 .switch-btn.active {
     color: white;
-    background: var(--gradient-primary);
-    box-shadow: 0 4px 15px -5px rgba(59, 130, 246, 0.5);
+    background: linear-gradient(135deg, #0d9488, #0f766e);
+    border: 1px solid rgba(20, 184, 166, 0.35);
+    box-shadow: 0 4px 15px -5px rgba(20, 184, 166, 0.5);
+}
+
+.switch-btn.active.active-a {
+    background: linear-gradient(135deg, var(--accent-1), #2563eb);
+    box-shadow: 0 4px 15px -5px rgba(59, 130, 246, 0.6);
+}
+
+.switch-btn.active.active-b {
+    background: linear-gradient(135deg, var(--accent-2), #7c3aed);
+    box-shadow: 0 4px 15px -5px rgba(139, 92, 246, 0.6);
 }
 
 /* Submit Button */

@@ -59,10 +59,12 @@
                         <line x1="12" y1="18" x2="12" y2="12"></line>
                         <line x1="9" y1="15" x2="15" y2="15"></line>
                     </svg>
-                    <span class="file-msg" data-i18n="chooseLeft">Choose <strong>Left Backup</strong> or drag it
+                    <span class="file-msg" data-i18n="chooseLeft">Choose <strong class="backup-badge badge-a">Backup
+                            A</strong> or drag it
                         here</span>
-                    <span class="file-name" id="file-name-left" data-i18n="noFile">No file chosen</span>
-                    <input type="file" id="leftFile" accept=".jwlibrary" required>
+                    <span class="file-name" id="file-name-left" data-i18n="noFile" aria-live="polite">No file
+                        chosen</span>
+                    <input type="file" id="leftFile" accept=".jwlibrary" required aria-label="Backup A file input">
                 </div>
 
                 <div class="file-drop-area" id="drop-area-right">
@@ -74,61 +76,72 @@
                         <line x1="12" y1="18" x2="12" y2="12"></line>
                         <line x1="9" y1="15" x2="15" y2="15"></line>
                     </svg>
-                    <span class="file-msg" data-i18n="chooseRight">Choose <strong>Right Backup</strong> or drag it
+                    <span class="file-msg" data-i18n="chooseRight">Choose <strong class="backup-badge badge-b">Backup
+                            B</strong> or drag it
                         here</span>
-                    <span class="file-name" id="file-name-right" data-i18n="noFile">No file chosen</span>
-                    <input type="file" id="rightFile" accept=".jwlibrary" required>
+                    <span class="file-name" id="file-name-right" data-i18n="noFile" aria-live="polite">No file
+                        chosen</span>
+                    <input type="file" id="rightFile" accept=".jwlibrary" required aria-label="Backup B file input">
                 </div>
             </div>
 
-            <div class="resolvers-section">
-                <h2 data-i18n="resolversTitle">Conflict Resolvers</h2>
+            <div class="resolvers-section" role="group" aria-labelledby="resolvers-title">
+                <h2 id="resolvers-title" data-i18n="resolversTitle">Conflict Resolvers</h2>
                 <p class="section-desc" data-i18n="resolversDesc">Choose how conflicts between the two files should be
                     resolved automatically.</p>
 
                 <div class="resolvers-grid">
                     <div class="input-group">
                         <label data-i18n="bookmarks">Bookmarks</label>
-                        <div class="switch-container">
-                            <button type="button" class="switch-btn active" data-target="bookmarkResolver"
-                                data-value="chooseLeft" data-i18n="keepLeft">Keep Left</button>
-                            <button type="button" class="switch-btn" data-target="bookmarkResolver"
-                                data-value="chooseRight" data-i18n="keepRight">Keep Right</button>
+                        <div class="switch-container" role="radiogroup" aria-label="Bookmarks resolver">
+                            <button type="button" class="switch-btn active active-a" role="radio" aria-checked="true"
+                                data-target="bookmarkResolver" data-value="chooseLeft" data-i18n="keepLeft">Keep <span
+                                    class="badge-text-a">Backup A</span></button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="bookmarkResolver" data-value="chooseRight" data-i18n="keepRight">Keep <span
+                                    class="badge-text-b">Backup B</span></button>
                             <input type="hidden" id="bookmarkResolver" value="chooseLeft">
                         </div>
                     </div>
 
                     <div class="input-group">
                         <label data-i18n="markings">Markings</label>
-                        <div class="switch-container">
-                            <button type="button" class="switch-btn active" data-target="markingResolver"
-                                data-value="chooseLeft" data-i18n="keepLeft">Keep Left</button>
-                            <button type="button" class="switch-btn" data-target="markingResolver"
-                                data-value="chooseRight" data-i18n="keepRight">Keep Right</button>
+                        <div class="switch-container" role="radiogroup" aria-label="Markings resolver">
+                            <button type="button" class="switch-btn active active-a" role="radio" aria-checked="true"
+                                data-target="markingResolver" data-value="chooseLeft" data-i18n="keepLeft">Keep <span
+                                    class="badge-text-a">Backup A</span></button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="markingResolver" data-value="chooseRight" data-i18n="keepRight">Keep <span
+                                    class="badge-text-b">Backup B</span></button>
                             <input type="hidden" id="markingResolver" value="chooseLeft">
                         </div>
                     </div>
 
                     <div class="input-group note-group">
                         <label data-i18n="notes">Notes</label>
-                        <div class="switch-container">
-                            <button type="button" class="switch-btn active" data-target="noteResolver"
-                                data-value="chooseNewest" data-i18n="keepNewest">Keep Newest</button>
-                            <button type="button" class="switch-btn" data-target="noteResolver" data-value="chooseLeft"
-                                data-i18n="keepLeft">Keep Left</button>
-                            <button type="button" class="switch-btn" data-target="noteResolver" data-value="chooseRight"
-                                data-i18n="keepRight">Keep Right</button>
+                        <div class="switch-container" role="radiogroup" aria-label="Notes resolver">
+                            <button type="button" class="switch-btn active" role="radio" aria-checked="true"
+                                data-target="noteResolver" data-value="chooseNewest" data-i18n="keepNewest">Keep
+                                Newest</button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="noteResolver" data-value="chooseLeft" data-i18n="keepLeft">Keep <span
+                                    class="badge-text-a">Backup A</span></button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="noteResolver" data-value="chooseRight" data-i18n="keepRight">Keep <span
+                                    class="badge-text-b">Backup B</span></button>
                             <input type="hidden" id="noteResolver" value="chooseNewest">
                         </div>
                     </div>
 
                     <div class="input-group">
                         <label data-i18n="inputFields">Input Fields</label>
-                        <div class="switch-container">
-                            <button type="button" class="switch-btn active" data-target="inputFieldResolver"
-                                data-value="chooseLeft" data-i18n="keepLeft">Keep Left</button>
-                            <button type="button" class="switch-btn" data-target="inputFieldResolver"
-                                data-value="chooseRight" data-i18n="keepRight">Keep Right</button>
+                        <div class="switch-container" role="radiogroup" aria-label="Input Fields resolver">
+                            <button type="button" class="switch-btn active active-a" role="radio" aria-checked="true"
+                                data-target="inputFieldResolver" data-value="chooseLeft" data-i18n="keepLeft">Keep <span
+                                    class="badge-text-a">Backup A</span></button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="inputFieldResolver" data-value="chooseRight" data-i18n="keepRight">Keep
+                                <span class="badge-text-b">Backup B</span></button>
                             <input type="hidden" id="inputFieldResolver" value="chooseLeft">
                         </div>
                     </div>
