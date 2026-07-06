@@ -169,6 +169,78 @@
         targetDb.exec("COMMIT;");
     };
 
+    // List all user tables in a database (excludes internal sqlite_* tables)
+    function listTables(db) {
+        try {
+            let res = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+            return res.length > 0 ? res[0].values.map(v => v[0]) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Check if a table already exists in a database
+    function tableExists(db, name) {
+        try {
+            let res = db.exec(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='${name}'`);
+            return res.length > 0 && res[0].values.length > 0;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Copy every index or trigger definition from source to target. Run AFTER data is
+    // loaded so unique indexes / triggers never interfere with our bulk inserts.
+    function copySchemaObjects(sourceDb, targetDb, type) {
+        let res;
+        try {
+            res = sourceDb.exec(`SELECT sql FROM sqlite_master WHERE type='${type}' AND sql IS NOT NULL`);
+        } catch (e) {
+            return;
+        }
+        if (res.length === 0) return;
+        for (const [sql] of res[0].values) {
+            try {
+                targetDb.run(sql);
+            } catch (e) {
+                console.warn(`Could not recreate ${type}: ${sql}`, e);
+            }
+        }
+    }
+
+    // Union two sets of rows (no dedup): concatenate them and assign fresh primary keys,
+    // returning the change maps so foreign keys can be remapped. Used for tables that have
+    // no stable unique key (playlists/media) where dropping a row would lose user data.
+    function unionTable(leftRows, rightRows, pkColumn) {
+        const mergedRows = [];
+        const changesLeft = {};
+        const changesRight = {};
+        let newId = 1;
+
+        for (const row of leftRows) {
+            const r = { ...row };
+            if (pkColumn) {
+                const oldId = val(row, pkColumn);
+                const finalId = newId++;
+                changesLeft[oldId] = finalId;
+                setVal(r, pkColumn, finalId);
+            }
+            mergedRows.push(r);
+        }
+        for (const row of rightRows) {
+            const r = { ...row };
+            if (pkColumn) {
+                const oldId = val(row, pkColumn);
+                const finalId = newId++;
+                changesRight[oldId] = finalId;
+                setVal(r, pkColumn, finalId);
+            }
+            mergedRows.push(r);
+        }
+
+        return { rows: mergedRows, changesLeft, changesRight };
+    }
+
     // Main Merge logic
     window.mergeJWLibrary = async function (leftFile, rightFile, resolvers, statusCallback) {
         statusCallback("Loading JSZip and WebAssembly...");
@@ -209,21 +281,40 @@
         try {
 
             statusCallback("Preparing tables schema...");
-            const tablesToMerge = [
+
+            // The 8 "core" tables, merged with conflict resolution / GUID dedup.
+            const coreTables = [
                 "Location", "Tag", "UserMark", "BlockRange", "Bookmark",
                 "Note", "TagMap", "InputField"
             ];
 
-            for (let t of tablesToMerge) {
-                cloneTableSchema(leftDb, mergedDb, t);
+            // Playlist / media tables. They have no stable GUID, so we UNION them
+            // (concatenate from both backups with fresh primary keys) and remap their
+            // foreign keys, instead of trying to dedup. This guarantees no playlist,
+            // custom media or marker data is lost during the merge.
+            const playlistTables = [
+                "IndependentMedia", "PlaylistItem", "PlaylistItemMarker",
+                "PlaylistItemMarkerBibleVerseMap", "PlaylistItemMarkerParagraphMap",
+                "PlaylistItemIndependentMediaMap", "PlaylistItemLocationMap"
+            ];
+
+            // Everything we actively merge; all other tables are copied verbatim.
+            const managedTables = new Set([...coreTables, ...playlistTables]);
+
+            // Recreate the FULL schema (every table) from the source so nothing is dropped.
+            // Indexes and triggers are added later, AFTER data is loaded.
+            const leftTables = listTables(leftDb);
+            for (let t of leftTables) cloneTableSchema(leftDb, mergedDb, t);
+            for (let t of listTables(rightDb)) {
+                if (!tableExists(mergedDb, t)) cloneTableSchema(rightDb, mergedDb, t);
             }
 
             // Helper to get unique key string safely handling nulls
             const uk = (...args) => args.map(a => a === null || a === undefined ? '' : String(a)).join('_');
 
-            // Extract tables
+            // Extract every managed table from both databases.
             let L = {}, R = {}, Cols = {};
-            for (let t of tablesToMerge) {
+            for (let t of managedTables) {
                 let exL = extractTable(leftDb, t);
                 let exR = extractTable(rightDb, t);
                 L[t] = exL.rows;
@@ -379,6 +470,17 @@
             updateForeignKeys(L.TagMap, "NoteId", noteMerge.changesLeft);
             updateForeignKeys(R.TagMap, "NoteId", noteMerge.changesRight);
 
+            statusCallback("Merging Playlists & media...");
+            // IndependentMedia: union (referenced by PlaylistItemIndependentMediaMap).
+            let imMerge = unionTable(L.IndependentMedia, R.IndependentMedia, "IndependentMediaId");
+            // PlaylistItem: union (Accuracy points to a static lookup table, left untouched).
+            let piMerge = unionTable(L.PlaylistItem, R.PlaylistItem, "PlaylistItemId");
+
+            // Remap PlaylistItem references on TagMap BEFORE TagMap is merged below,
+            // otherwise playlist tags would point to stale / non-existent items.
+            updateForeignKeys(L.TagMap, "PlaylistItemId", piMerge.changesLeft);
+            updateForeignKeys(R.TagMap, "PlaylistItemId", piMerge.changesRight);
+
             statusCallback("Merging TagMaps...");
             let tmMerge = mergeTable(L.TagMap, R.TagMap, "TagMapId",
                 r => uk(val(r, 'PlaylistItemId'), val(r, 'LocationId'), val(r, 'NoteId'), val(r, 'TagId'), val(r, 'Position')),
@@ -389,6 +491,34 @@
                 r => uk(val(r, 'LocationId'), val(r, 'TextTag')),
                 resolvers.inputFieldResolver, 'InputField');
 
+            // ----- Playlist child tables: remap foreign keys, then concatenate -----
+            // PlaylistItemMarker: remap its PlaylistItem reference, then union to get fresh
+            // marker ids that its own child maps depend on.
+            updateForeignKeys(L.PlaylistItemMarker, "PlaylistItemId", piMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemMarker, "PlaylistItemId", piMerge.changesRight);
+            let pimMerge = unionTable(L.PlaylistItemMarker, R.PlaylistItemMarker, "PlaylistItemMarkerId");
+
+            // Marker child maps reference the marker id we just reassigned.
+            updateForeignKeys(L.PlaylistItemMarkerBibleVerseMap, "PlaylistItemMarkerId", pimMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemMarkerBibleVerseMap, "PlaylistItemMarkerId", pimMerge.changesRight);
+            updateForeignKeys(L.PlaylistItemMarkerParagraphMap, "PlaylistItemMarkerId", pimMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemMarkerParagraphMap, "PlaylistItemMarkerId", pimMerge.changesRight);
+
+            // PlaylistItem map tables reference PlaylistItem plus one other entity.
+            updateForeignKeys(L.PlaylistItemIndependentMediaMap, "PlaylistItemId", piMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemIndependentMediaMap, "PlaylistItemId", piMerge.changesRight);
+            updateForeignKeys(L.PlaylistItemIndependentMediaMap, "IndependentMediaId", imMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemIndependentMediaMap, "IndependentMediaId", imMerge.changesRight);
+
+            updateForeignKeys(L.PlaylistItemLocationMap, "PlaylistItemId", piMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemLocationMap, "PlaylistItemId", piMerge.changesRight);
+            updateForeignKeys(L.PlaylistItemLocationMap, "LocationId", locMerge.changesLeft);
+            updateForeignKeys(R.PlaylistItemLocationMap, "LocationId", locMerge.changesRight);
+
+            // These map tables use composite keys (no single PK to reassign); since playlist
+            // and marker ids are freshly unique per side, simply concatenating is collision-free.
+            const concat = (t) => [...L[t], ...R[t]];
+
             statusCallback("Writing Merged Database...");
             const writeData = {
                 Location: locMerge.rows,
@@ -398,12 +528,41 @@
                 Bookmark: bmMerge.rows,
                 Note: noteMerge.rows,
                 TagMap: tmMerge.rows,
-                InputField: ifMerge.rows
+                InputField: ifMerge.rows,
+                IndependentMedia: imMerge.rows,
+                PlaylistItem: piMerge.rows,
+                PlaylistItemMarker: pimMerge.rows,
+                PlaylistItemMarkerBibleVerseMap: concat("PlaylistItemMarkerBibleVerseMap"),
+                PlaylistItemMarkerParagraphMap: concat("PlaylistItemMarkerParagraphMap"),
+                PlaylistItemIndependentMediaMap: concat("PlaylistItemIndependentMediaMap"),
+                PlaylistItemLocationMap: concat("PlaylistItemLocationMap")
             };
 
-            for (let t of tablesToMerge) {
+            for (let t of managedTables) {
                 insertTable(mergedDb, t, Cols[t], writeData[t]);
             }
+
+            // Copy every remaining table verbatim (static lookups + metadata such as
+            // PlaylistItemAccuracy, LastModified, android_metadata, grdb_migrations, ...)
+            // so nothing the merge doesn't understand is silently dropped. Prefer the left
+            // side; fall back to right when left has no rows.
+            statusCallback("Copying reference & metadata tables...");
+            const otherTables = new Set(
+                [...listTables(leftDb), ...listTables(rightDb)].filter(t => !managedTables.has(t))
+            );
+            for (const t of otherTables) {
+                let ex = extractTable(leftDb, t);
+                if (ex.rows.length === 0) {
+                    const exR = extractTable(rightDb, t);
+                    if (exR.columns.length > 0) ex = exR;
+                }
+                if (ex.columns.length > 0) insertTable(mergedDb, t, ex.columns, ex.rows);
+            }
+
+            // Recreate indexes and triggers now that all data is loaded.
+            statusCallback("Rebuilding indexes...");
+            copySchemaObjects(leftDb, mergedDb, 'index');
+            copySchemaObjects(leftDb, mergedDb, 'trigger');
 
             // Instead of creating a manifest from scratch (which causes JW Library on mobile to crash
             // due to strict validation), we clone the original left manifest and slightly alter it.
