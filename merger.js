@@ -511,12 +511,19 @@
             updateForeignKeys(R.TagMap, "PlaylistItemId", piMerge.changesRight);
 
             statusCallback("Merging TagMaps...");
+            // A TagMap row identifies "this item belongs to this tag": exactly one of
+            // PlaylistItemId / LocationId / NoteId is set (enforced by a CHECK), and the DB
+            // additionally enforces UNIQUE(TagId, NoteId) and UNIQUE(TagId, LocationId) — an
+            // item may appear at most once per tag. Position is only an ordering hint, so it
+            // MUST NOT be part of the dedup key: if the same item sits in the same tag at a
+            // different position in each backup (e.g. reordered on another device), keying on
+            // position would keep both copies and violate UNIQUE(TagId, NoteId/LocationId).
             let tmMerge = mergeTable(L.TagMap, R.TagMap, "TagMapId",
-                r => uk(val(r, 'PlaylistItemId'), val(r, 'LocationId'), val(r, 'NoteId'), val(r, 'TagId'), val(r, 'Position')),
+                r => uk(val(r, 'TagId'), val(r, 'PlaylistItemId'), val(r, 'LocationId'), val(r, 'NoteId')),
                 'chooseLeft', 'TagMap');
 
-            // Resolve UNIQUE(TagId, Position) collisions introduced when tags from both
-            // backups were merged into a shared TagId (see reindexTagMapPositions).
+            // Distinct items from each backup can still collide on UNIQUE(TagId, Position)
+            // once their tags merge into a shared TagId; renumber positions to fix that.
             reindexTagMapPositions(tmMerge.rows);
 
             statusCallback("Merging InputFields...");
