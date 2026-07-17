@@ -605,6 +605,20 @@
                 if (ex.columns.length > 0) insertTable(mergedDb, t, ex.columns, ex.rows);
             }
 
+            // Stamp the merge time into the LastModified table (JW Library reads this value),
+            // so the merged backup reflects when it was produced instead of inheriting the
+            // left backup's old timestamp. Mirrors the manifest lastModifiedDate set below.
+            // Format matches the app's: ISO-8601 seconds precision, e.g. 2026-07-17T20:30:45Z.
+            try {
+                if (tableExists(mergedDb, "LastModified")) {
+                    const mergeStamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                    mergedDb.run("DELETE FROM LastModified;");
+                    mergedDb.run("INSERT INTO LastModified (LastModified) VALUES (?);", [mergeStamp]);
+                }
+            } catch (e) {
+                console.warn("Could not update LastModified table.", e);
+            }
+
             // Recreate indexes and triggers now that all data is loaded.
             statusCallback("Rebuilding indexes...");
             copySchemaObjects(leftDb, mergedDb, 'index');
@@ -667,9 +681,13 @@
 
             // Also copy all other possible system files from the left zip (like .hash if they exist in future versions)
             leftZip.folder("").forEach((relativePath, file) => {
-                if (relativePath !== "userData.db" && relativePath !== "manifest.json" && relativePath !== "default_thumbnail.png") {
-                    finalZip.file(relativePath, file.async("uint8array"));
-                }
+                if (relativePath === "userData.db" || relativePath === "manifest.json" || relativePath === "default_thumbnail.png") return;
+                // Never carry over SQLite sidecar journals (-wal / -shm / -journal). The merged
+                // userData.db is freshly written and self-contained; shipping the source backup's
+                // stale write-ahead log makes SQLite (JW Library) replay old pages over the merge
+                // on import, silently reverting or dropping merged data — notes, highlights, tags.
+                if (/\.db-(wal|shm|journal)$/i.test(relativePath)) return;
+                finalZip.file(relativePath, file.async("uint8array"));
             });
             finalZip.file("manifest.json", JSON.stringify(finalManifest, null, 2));
 

@@ -34,13 +34,15 @@ const SCHEMA = `
   CREATE UNIQUE INDEX IX_Note_Guid ON Note (Guid);
 `;
 
-async function build(SQL, sqls) {
+async function build(SQL, sqls, extraFiles) {
     const db = new SQL.Database();
     db.run(SCHEMA);
     for (const s of sqls) db.run(s);
     const z = new JSZip();
     z.file('userData.db', db.export());
     z.file('manifest.json', JSON.stringify({ name: 'b', creationDate: '2024-01-01', version: 1, type: 0, userDataBackup: { lastModifiedDate: '2024-01-01T00:00:00Z', hash: 'x', deviceName: 'd', databaseName: 'userData.db', schemaVersion: 14 } }));
+    // Real Android backups can ship SQLite sidecar journals alongside the db.
+    for (const [name, content] of Object.entries(extraFiles || {})) z.file(name, content);
     db.close();
     return z.generateAsync({ type: 'nodebuffer' });
 }
@@ -83,7 +85,13 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         `INSERT INTO PlaylistItemAccuracy VALUES (1,'Accurate');`,
         `INSERT INTO LastModified VALUES ('2024-01-01T00:00:00Z');`,
         `INSERT INTO android_metadata VALUES ('en_US');`,
-    ]);
+    ], {
+        // Stale SQLite journals as found in a real Android backup: they must NOT be
+        // carried into the merged output, or the app replays them over the merge.
+        'userData.db-wal': Buffer.from('STALE-WAL-DATA'),
+        'userData.db-shm': Buffer.from('STALE-SHM-DATA'),
+    });
+    const mergeStartMs = Date.now();
 
     const B = await build(SQL, [
         `INSERT INTO Location VALUES (1,1,NULL,NULL,NULL,NULL,'nwtsty',0,0,NULL);`,
@@ -116,6 +124,17 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     const mdb = new SQL.Database(await z.file('userData.db').async('uint8array'));
     const q = s => { try { const r = mdb.exec(s); return r.length ? r[0].values : []; } catch (e) { return 'ERR:' + e.message; } };
     const count = t => { const r = q(`SELECT COUNT(*) FROM ${t}`); return Array.isArray(r) ? r[0][0] : r; };
+
+    console.log('\n--- Backup packaging (no stale WAL, fresh timestamp) ---');
+    // A stale WAL/SHM carried into the output makes JW Library replay old pages over the
+    // merged db on import, silently reverting/dropping merged data. They must be dropped.
+    assert(z.file('userData.db-wal') === null, 'stale userData.db-wal NOT carried into merged backup');
+    assert(z.file('userData.db-shm') === null, 'stale userData.db-shm NOT carried into merged backup');
+    // LastModified table must reflect the merge time, not the source backup's old value.
+    const lm = q("SELECT LastModified FROM LastModified");
+    const lmVal = Array.isArray(lm) && lm.length ? lm[0][0] : null;
+    assert(lmVal && lmVal !== '2024-01-01T00:00:00Z' && lmVal !== '2024-02-01T00:00:00Z', 'LastModified table stamped to merge time');
+    assert(lmVal && !isNaN(Date.parse(lmVal)) && Date.parse(lmVal) >= mergeStartMs - 2000, 'LastModified timestamp is recent (merge moment)');
 
     console.log('\n--- Tables present ---');
     const tables = q("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").map(r => r[0]);
