@@ -500,8 +500,14 @@
             updateForeignKeys(R.TagMap, "NoteId", noteMerge.changesRight);
 
             statusCallback("Merging Playlists & media...");
-            // IndependentMedia: union (referenced by PlaylistItemIndependentMediaMap).
-            let imMerge = unionTable(L.IndependentMedia, R.IndependentMedia, "IndependentMediaId");
+            // IndependentMedia has UNIQUE(FilePath): the same media file (identical FilePath)
+            // can exist in both backups, so we must merge by FilePath rather than blindly
+            // concatenate — a plain union would insert the shared FilePath twice and abort.
+            // FilePath is kept unchanged, so PlaylistItem.ThumbnailFilePath (an FK on FilePath)
+            // stays valid; only IndependentMediaId is reassigned and remapped below.
+            let imMerge = mergeTable(L.IndependentMedia, R.IndependentMedia, "IndependentMediaId",
+                r => uk(val(r, 'FilePath')),
+                'chooseLeft', 'IndependentMedia');
             // PlaylistItem: union (Accuracy points to a static lookup table, left untouched).
             let piMerge = unionTable(L.PlaylistItem, R.PlaylistItem, "PlaylistItemId");
 

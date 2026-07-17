@@ -21,7 +21,7 @@ const SCHEMA = `
   CREATE TABLE Tag (TagId INTEGER PRIMARY KEY, Type INT, Name TEXT);
   CREATE TABLE TagMap (TagMapId INTEGER PRIMARY KEY, PlaylistItemId INT, LocationId INT, NoteId INT, TagId INT, Position INT, CONSTRAINT TagId_Position UNIQUE (TagId, Position), CONSTRAINT TagId_NoteId UNIQUE (TagId, NoteId), CONSTRAINT TagId_LocationId UNIQUE (TagId, LocationId));
   CREATE TABLE InputField (LocationId INT, TextTag TEXT, Value TEXT, PRIMARY KEY (LocationId, TextTag));
-  CREATE TABLE IndependentMedia (IndependentMediaId INTEGER PRIMARY KEY, OriginalFilename TEXT, FilePath TEXT, MimeType TEXT, Hash TEXT);
+  CREATE TABLE IndependentMedia (IndependentMediaId INTEGER PRIMARY KEY, OriginalFilename TEXT, FilePath TEXT UNIQUE, MimeType TEXT, Hash TEXT);
   CREATE TABLE PlaylistItem (PlaylistItemId INTEGER PRIMARY KEY, Label TEXT, StartTrimOffsetTicks INT, EndTrimOffsetTicks INT, Accuracy INT, EndAction INT, ThumbnailFilePath TEXT);
   CREATE TABLE PlaylistItemAccuracy (PlaylistItemAccuracyId INTEGER PRIMARY KEY, Description TEXT);
   CREATE TABLE PlaylistItemIndependentMediaMap (PlaylistItemId INT, IndependentMediaId INT, DurationTicks INT, PRIMARY KEY (PlaylistItemId, IndependentMediaId));
@@ -70,6 +70,9 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         // A playlist: Tag(Type=2) + 1 item + media + location + marker
         `INSERT INTO Tag VALUES (2,2,'My Playlist');`,
         `INSERT INTO IndependentMedia VALUES (1,'songA.mp3','/a','audio/mpeg','hashA');`,
+        // Media file also present in backup B with the SAME FilePath ('/shared'): must be
+        // merged to one row, not concatenated, or UNIQUE(FilePath) aborts the merge.
+        `INSERT INTO IndependentMedia VALUES (2,'shared.mp3','/shared','audio/mpeg','hashS');`,
         `INSERT INTO PlaylistItem VALUES (1,'Item A',0,0,1,0,NULL);`,
         `INSERT INTO TagMap VALUES (2,1,NULL,NULL,2,0);`,
         `INSERT INTO PlaylistItemIndependentMediaMap VALUES (1,1,1000);`,
@@ -89,6 +92,8 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         // B playlist: different item + media + marker
         `INSERT INTO Tag VALUES (1,2,'B Playlist');`,
         `INSERT INTO IndependentMedia VALUES (1,'songB.mp3','/b','audio/mpeg','hashB');`,
+        // Same shared media file ('/shared') as backup A.
+        `INSERT INTO IndependentMedia VALUES (2,'shared.mp3','/shared','audio/mpeg','hashS');`,
         `INSERT INTO PlaylistItem VALUES (1,'Item B',0,0,1,0,NULL);`,
         `INSERT INTO TagMap VALUES (1,1,NULL,NULL,1,0);`,
         // Same "Favorites" tag as A; its note also sits at Position 0 (collision source).
@@ -124,7 +129,8 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     console.log('\n--- Playlists & media (Phase 1) ---');
     assert(tables.includes('PlaylistItem'), 'PlaylistItem table exists');
     assert(count('PlaylistItem') === 2, 'PlaylistItem count = 2 (union, no loss)');
-    assert(count('IndependentMedia') === 2, 'IndependentMedia count = 2');
+    assert(count('IndependentMedia') === 3, 'IndependentMedia count = 3 (songA, songB, shared once)');
+    assert(count('IndependentMedia') === q("SELECT COUNT(DISTINCT FilePath) FROM IndependentMedia")[0][0], 'IndependentMedia FilePath deduped (no UNIQUE(FilePath) collision)');
     assert(count('PlaylistItemMarker') === 2, 'PlaylistItemMarker count = 2');
     assert(count('PlaylistItemMarkerBibleVerseMap') === 2, 'BibleVerseMap count = 2');
     assert(count('PlaylistItemMarkerParagraphMap') === 1, 'ParagraphMap count = 1');
