@@ -241,6 +241,35 @@
         return { rows: mergedRows, changesLeft, changesRight };
     }
 
+    // TagMap has a UNIQUE(TagId, Position) constraint: Position is the ordering of items
+    // inside a tag. When identical tags from both backups collapse into a single TagId,
+    // items from each side keep their original positions (0, 1, 2...), producing duplicate
+    // (TagId, Position) pairs. Exact-duplicate rows were already dropped by the merge, so the
+    // survivors are genuinely distinct items that must each get a unique slot. Renumber the
+    // Position of every row within a TagId to a contiguous 0-based sequence, preserving the
+    // existing relative order (stable sort on the original Position).
+    function reindexTagMapPositions(rows) {
+        const groups = {};
+        rows.forEach((row, idx) => {
+            const tagId = val(row, 'TagId');
+            const key = tagId === null || tagId === undefined ? '' : String(tagId);
+            (groups[key] || (groups[key] = [])).push({ row, idx });
+        });
+
+        for (const key in groups) {
+            const items = groups[key];
+            items.sort((a, b) => {
+                const pa = Number(val(a.row, 'Position'));
+                const pb = Number(val(b.row, 'Position'));
+                if (pa !== pb) return pa - pb;
+                return a.idx - b.idx; // stable tiebreak keeps deterministic order
+            });
+            items.forEach((item, position) => setVal(item.row, 'Position', position));
+        }
+
+        return rows;
+    }
+
     // Main Merge logic
     window.mergeJWLibrary = async function (leftFile, rightFile, resolvers, statusCallback) {
         statusCallback("Loading JSZip and WebAssembly...");
@@ -485,6 +514,10 @@
             let tmMerge = mergeTable(L.TagMap, R.TagMap, "TagMapId",
                 r => uk(val(r, 'PlaylistItemId'), val(r, 'LocationId'), val(r, 'NoteId'), val(r, 'TagId'), val(r, 'Position')),
                 'chooseLeft', 'TagMap');
+
+            // Resolve UNIQUE(TagId, Position) collisions introduced when tags from both
+            // backups were merged into a shared TagId (see reindexTagMapPositions).
+            reindexTagMapPositions(tmMerge.rows);
 
             statusCallback("Merging InputFields...");
             let ifMerge = mergeTable(L.InputField, R.InputField, null,
