@@ -19,7 +19,7 @@ const SCHEMA = `
   CREATE TABLE Bookmark (BookmarkId INTEGER PRIMARY KEY, LocationId INT, PublicationLocationId INT, Slot INT, Title TEXT, Snippet TEXT, BlockType INT, BlockIdentifier INT);
   CREATE TABLE Note (NoteId INTEGER PRIMARY KEY, Guid TEXT, UserMarkId INT, LocationId INT, Title TEXT, Content TEXT, LastModified TEXT, Created TEXT, BlockType INT, BlockIdentifier INT);
   CREATE TABLE Tag (TagId INTEGER PRIMARY KEY, Type INT, Name TEXT);
-  CREATE TABLE TagMap (TagMapId INTEGER PRIMARY KEY, PlaylistItemId INT, LocationId INT, NoteId INT, TagId INT, Position INT);
+  CREATE TABLE TagMap (TagMapId INTEGER PRIMARY KEY, PlaylistItemId INT, LocationId INT, NoteId INT, TagId INT, Position INT, CONSTRAINT UQ_TagMap UNIQUE (TagId, Position));
   CREATE TABLE InputField (LocationId INT, TextTag TEXT, Value TEXT, PRIMARY KEY (LocationId, TextTag));
   CREATE TABLE IndependentMedia (IndependentMediaId INTEGER PRIMARY KEY, OriginalFilename TEXT, FilePath TEXT, MimeType TEXT, Hash TEXT);
   CREATE TABLE PlaylistItem (PlaylistItemId INTEGER PRIMARY KEY, Label TEXT, StartTrimOffsetTicks INT, EndTrimOffsetTicks INT, Accuracy INT, EndAction INT, ThumbnailFilePath TEXT);
@@ -57,6 +57,11 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         `INSERT INTO Note VALUES (2,'guid-shared',NULL,1,'Shared','old text','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',NULL,NULL);`,
         `INSERT INTO Tag VALUES (1,1,'Study');`,
         `INSERT INTO TagMap VALUES (1,NULL,NULL,1,1,0);`,
+        // Shared "Favorites" tag (same Type+Name in both backups -> merged into one TagId).
+        // A tags its own note here at Position 0; B tags a different note at Position 0 too,
+        // which would collide on UNIQUE(TagId, Position) after the tags merge.
+        `INSERT INTO Tag VALUES (3,1,'Favorites');`,
+        `INSERT INTO TagMap VALUES (3,NULL,NULL,1,3,0);`,
         // A playlist: Tag(Type=2) + 1 item + media + location + marker
         `INSERT INTO Tag VALUES (2,2,'My Playlist');`,
         `INSERT INTO IndependentMedia VALUES (1,'songA.mp3','/a','audio/mpeg','hashA');`,
@@ -81,6 +86,9 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         `INSERT INTO IndependentMedia VALUES (1,'songB.mp3','/b','audio/mpeg','hashB');`,
         `INSERT INTO PlaylistItem VALUES (1,'Item B',0,0,1,0,NULL);`,
         `INSERT INTO TagMap VALUES (1,1,NULL,NULL,1,0);`,
+        // Same "Favorites" tag as A; its note also sits at Position 0 (collision source).
+        `INSERT INTO Tag VALUES (2,1,'Favorites');`,
+        `INSERT INTO TagMap VALUES (2,NULL,NULL,1,2,0);`,
         `INSERT INTO PlaylistItemIndependentMediaMap VALUES (1,1,2000);`,
         `INSERT INTO PlaylistItemMarker VALUES (1,1,'MarkB',0,200,0);`,
         `INSERT INTO PlaylistItemMarkerBibleVerseMap VALUES (1,99);`,
@@ -120,6 +128,19 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     assert(q("SELECT COUNT(*) FROM PlaylistItemMarkerBibleVerseMap b WHERE NOT EXISTS (SELECT 1 FROM PlaylistItemMarker m WHERE m.PlaylistItemMarkerId=b.PlaylistItemMarkerId)")[0][0] === 0, 'all BibleVerseMap point to a real marker');
     assert(q("SELECT COUNT(*) FROM PlaylistItemIndependentMediaMap x WHERE NOT EXISTS (SELECT 1 FROM IndependentMedia i WHERE i.IndependentMediaId=x.IndependentMediaId)")[0][0] === 0, 'all media maps point to real media');
     assert(q("SELECT COUNT(*) FROM TagMap t WHERE t.PlaylistItemId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM PlaylistItem p WHERE p.PlaylistItemId=t.PlaylistItemId)")[0][0] === 0, 'no orphaned playlist TagMap rows');
+
+    console.log('\n--- TagMap UNIQUE(TagId, Position) ---');
+    // The merge must not throw, and no two rows may share a (TagId, Position) pair.
+    const favTag = q("SELECT TagId FROM Tag WHERE Type=1 AND Name='Favorites'");
+    assert(Array.isArray(favTag) && favTag.length === 1, 'Favorites tag merged into a single TagId');
+    if (Array.isArray(favTag) && favTag.length === 1) {
+        const favId = favTag[0][0];
+        const favPositions = q(`SELECT Position FROM TagMap WHERE TagId=${favId} ORDER BY Position`).map(r => r[0]);
+        assert(favPositions.length === 2, 'both Favorites entries survived (no data loss)');
+        assert(new Set(favPositions).size === favPositions.length, 'Favorites positions are unique (0,1)');
+    }
+    const dupes = q("SELECT COUNT(*) FROM (SELECT TagId, Position FROM TagMap GROUP BY TagId, Position HAVING COUNT(*) > 1)");
+    assert(Array.isArray(dupes) && dupes[0][0] === 0, 'no duplicate (TagId, Position) pairs anywhere');
 
     console.log('\n--- Metadata / reference tables (Phase 2) ---');
     assert(tables.includes('LastModified'), 'LastModified table exists');
