@@ -19,7 +19,7 @@ const SCHEMA = `
   CREATE TABLE Bookmark (BookmarkId INTEGER PRIMARY KEY, LocationId INT, PublicationLocationId INT, Slot INT, Title TEXT, Snippet TEXT, BlockType INT, BlockIdentifier INT);
   CREATE TABLE Note (NoteId INTEGER PRIMARY KEY, Guid TEXT, UserMarkId INT, LocationId INT, Title TEXT, Content TEXT, LastModified TEXT, Created TEXT, BlockType INT, BlockIdentifier INT);
   CREATE TABLE Tag (TagId INTEGER PRIMARY KEY, Type INT, Name TEXT);
-  CREATE TABLE TagMap (TagMapId INTEGER PRIMARY KEY, PlaylistItemId INT, LocationId INT, NoteId INT, TagId INT, Position INT, CONSTRAINT UQ_TagMap UNIQUE (TagId, Position));
+  CREATE TABLE TagMap (TagMapId INTEGER PRIMARY KEY, PlaylistItemId INT, LocationId INT, NoteId INT, TagId INT, Position INT, CONSTRAINT TagId_Position UNIQUE (TagId, Position), CONSTRAINT TagId_NoteId UNIQUE (TagId, NoteId), CONSTRAINT TagId_LocationId UNIQUE (TagId, LocationId));
   CREATE TABLE InputField (LocationId INT, TextTag TEXT, Value TEXT, PRIMARY KEY (LocationId, TextTag));
   CREATE TABLE IndependentMedia (IndependentMediaId INTEGER PRIMARY KEY, OriginalFilename TEXT, FilePath TEXT, MimeType TEXT, Hash TEXT);
   CREATE TABLE PlaylistItem (PlaylistItemId INTEGER PRIMARY KEY, Label TEXT, StartTrimOffsetTicks INT, EndTrimOffsetTicks INT, Accuracy INT, EndAction INT, ThumbnailFilePath TEXT);
@@ -62,6 +62,11 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         // which would collide on UNIQUE(TagId, Position) after the tags merge.
         `INSERT INTO Tag VALUES (3,1,'Favorites');`,
         `INSERT INTO TagMap VALUES (3,NULL,NULL,1,3,0);`,
+        // Shared "Reading" tag holding the shared note (guid-shared, NoteId 2). A puts it at
+        // Position 0; B (below) puts the SAME note in the SAME tag at Position 5. Keying dedup
+        // on Position would keep both and blow the UNIQUE(TagId, NoteId) constraint.
+        `INSERT INTO Tag VALUES (4,1,'Reading');`,
+        `INSERT INTO TagMap VALUES (4,NULL,NULL,2,4,0);`,
         // A playlist: Tag(Type=2) + 1 item + media + location + marker
         `INSERT INTO Tag VALUES (2,2,'My Playlist');`,
         `INSERT INTO IndependentMedia VALUES (1,'songA.mp3','/a','audio/mpeg','hashA');`,
@@ -89,6 +94,9 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
         // Same "Favorites" tag as A; its note also sits at Position 0 (collision source).
         `INSERT INTO Tag VALUES (2,1,'Favorites');`,
         `INSERT INTO TagMap VALUES (2,NULL,NULL,1,2,0);`,
+        // Same "Reading" tag as A holding the SAME shared note, but at a different Position.
+        `INSERT INTO Tag VALUES (3,1,'Reading');`,
+        `INSERT INTO TagMap VALUES (3,NULL,NULL,2,3,5);`,
         `INSERT INTO PlaylistItemIndependentMediaMap VALUES (1,1,2000);`,
         `INSERT INTO PlaylistItemMarker VALUES (1,1,'MarkB',0,200,0);`,
         `INSERT INTO PlaylistItemMarkerBibleVerseMap VALUES (1,99);`,
@@ -141,6 +149,19 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     }
     const dupes = q("SELECT COUNT(*) FROM (SELECT TagId, Position FROM TagMap GROUP BY TagId, Position HAVING COUNT(*) > 1)");
     assert(Array.isArray(dupes) && dupes[0][0] === 0, 'no duplicate (TagId, Position) pairs anywhere');
+
+    // Same note in the same tag from both backups (different positions) must dedup to one row,
+    // otherwise UNIQUE(TagId, NoteId) / UNIQUE(TagId, Position) would abort the merge.
+    const readTag = q("SELECT TagId FROM Tag WHERE Type=1 AND Name='Reading'");
+    assert(Array.isArray(readTag) && readTag.length === 1, 'Reading tag merged into a single TagId');
+    if (Array.isArray(readTag) && readTag.length === 1) {
+        const rid = readTag[0][0];
+        assert(q(`SELECT COUNT(*) FROM TagMap WHERE TagId=${rid}`)[0][0] === 1, 'shared note tagged once in Reading (deduped by item, not position)');
+    }
+    const dupNote = q("SELECT COUNT(*) FROM (SELECT TagId, NoteId FROM TagMap WHERE NoteId IS NOT NULL GROUP BY TagId, NoteId HAVING COUNT(*) > 1)");
+    assert(Array.isArray(dupNote) && dupNote[0][0] === 0, 'no duplicate (TagId, NoteId) pairs anywhere');
+    const dupLoc = q("SELECT COUNT(*) FROM (SELECT TagId, LocationId FROM TagMap WHERE LocationId IS NOT NULL GROUP BY TagId, LocationId HAVING COUNT(*) > 1)");
+    assert(Array.isArray(dupLoc) && dupLoc[0][0] === 0, 'no duplicate (TagId, LocationId) pairs anywhere');
 
     console.log('\n--- Metadata / reference tables (Phase 2) ---');
     assert(tables.includes('LastModified'), 'LastModified table exists');
