@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
             keepLeft: "Keep <span class='badge-text-a'>Backup A</span>",
             keepRight: "Keep <span class='badge-text-b'>Backup B</span>",
             keepNewest: "Keep Newest",
+            keepBoth: "Keep Both",
+            homeFavorites: "Home Favorites",
+            mergeBoth: "Merge Both",
             mergeBtn: "Merge Backups",
             langBtn: "🇫🇷 FR",
             errFiles: "Please select both Backup A and Backup B .jwlibrary files.",
@@ -70,6 +73,9 @@ document.addEventListener('DOMContentLoaded', () => {
             keepLeft: "Garder <span class='badge-text-a'>A</span>",
             keepRight: "Garder <span class='badge-text-b'>B</span>",
             keepNewest: "Garder le plus récent",
+            keepBoth: "Garder les deux",
+            homeFavorites: "Favoris d'accueil",
+            mergeBoth: "Fusionner",
             mergeBtn: "Fusionner les sauvegardes",
             langBtn: "🇬🇧 EN",
             errFiles: "Veuillez sélectionner les fichiers .jwlibrary pour la sauvegarde A et la sauvegarde B.",
@@ -324,6 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
             markingResolver: document.getElementById('markingResolver').value,
             noteResolver: document.getElementById('noteResolver').value,
             inputFieldResolver: document.getElementById('inputFieldResolver').value,
+            favoritesResolver: document.getElementById('favoritesResolver').value,
         };
 
         submitBtn.classList.add('loading');

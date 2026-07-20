@@ -22,6 +22,15 @@
         row[col] = value; // fallback
     };
 
+    // Generate a fresh lowercase UUID-v4 (matches JW Library's note/mark GUID format).
+    const newGuid = () => {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    };
+
     // Utility to get a row's values as an object based on columns
     const rowToObject = (columns, values) => {
         const obj = {};
@@ -270,6 +279,57 @@
         return rows;
     }
 
+    // Harmonise the Bible edition across the two backups (Standard "nwt" <-> Study "nwtsty").
+    // If a highlight (identified by a shared UserMarkGuid) sits on an "nwt" location in one
+    // backup and an "nwtsty" location in the other, the lagging "nwt" side is migrated: its
+    // *simple* Bible book locations (KeySymbol "nwt", no DocumentId and no Track) get their
+    // KeySymbol rewritten to "nwtsty" in place, so the subsequent Location merge deduplicates
+    // them against the study-edition side instead of leaving verse duplicates behind.
+    // Mirrors go-library-merger's needsNwtstyMigration / moveToNwtsty.
+    function migrateBibleEdition(L, R) {
+        const keySymByLoc = (rows) => {
+            const m = {};
+            for (const loc of rows) m[String(val(loc, 'LocationId'))] = val(loc, 'KeySymbol');
+            return m;
+        };
+        const guidKeySym = (userMarks, locKey) => {
+            const m = {};
+            for (const um of userMarks) {
+                m[val(um, 'UserMarkGuid')] = locKey[String(val(um, 'LocationId'))];
+            }
+            return m;
+        };
+
+        const lLocKey = keySymByLoc(L.Location);
+        const rLocKey = keySymByLoc(R.Location);
+        const lGuid = guidKeySym(L.UserMark, lLocKey);
+        const rGuid = guidKeySym(R.UserMark, rLocKey);
+
+        let leftNeedsMigration = false;
+        let rightNeedsMigration = false;
+        for (const guid in lGuid) {
+            if (!(guid in rGuid)) continue;
+            const l = lGuid[guid], r = rGuid[guid];
+            if (l === 'nwt' && r === 'nwtsty') leftNeedsMigration = true;
+            else if (l === 'nwtsty' && r === 'nwt') rightNeedsMigration = true;
+        }
+
+        const moveToNwtsty = (rows) => {
+            for (const loc of rows) {
+                if (val(loc, 'KeySymbol') !== 'nwt') continue;
+                const docId = val(loc, 'DocumentId');
+                const track = val(loc, 'Track');
+                const hasDoc = docId !== null && docId !== undefined;
+                const hasTrack = track !== null && track !== undefined;
+                if (hasDoc || hasTrack) continue; // only simple Bible book locations
+                setVal(loc, 'KeySymbol', 'nwtsty');
+            }
+        };
+
+        if (leftNeedsMigration) moveToNwtsty(L.Location);
+        if (rightNeedsMigration) moveToNwtsty(R.Location);
+    }
+
     // Main Merge logic
     window.mergeJWLibrary = async function (leftFile, rightFile, resolvers, statusCallback) {
         statusCallback("Loading JSZip and WebAssembly...");
@@ -351,9 +411,18 @@
                 Cols[t] = exL.columns.length > 0 ? exL.columns : exR.columns;
             }
 
+            // Bible edition harmonisation (nwt <-> nwtsty). One device may have migrated its
+            // Bible from the Standard edition (KeySymbol "nwt") to the Study edition ("nwtsty")
+            // while the other has not. The same verse highlight then lives on two locations that
+            // differ only by KeySymbol, so it would not dedup and would appear twice. Mirroring
+            // go-library-merger's PrepareDatabase, we detect the asymmetry via highlights sharing
+            // a UserMarkGuid across backups and migrate the lagging "nwt" side's *simple* Bible
+            // book locations (no DocumentId, no Track) to "nwtsty" so they merge naturally.
+            migrateBibleEdition(L, R);
+
             statusCallback("Merging Locations...");
             let locMerge = mergeTable(L.Location, R.Location, "LocationId",
-                r => uk(val(r, 'BookNumber'), val(r, 'ChapterNumber'), val(r, 'DocumentId'), val(r, 'Track'), val(r, 'IssueTagNumber'), val(r, 'KeySymbol'), val(r, 'MepsLanguage'), val(r, 'Type')),
+                r => uk(val(r, 'BookNumber'), val(r, 'ChapterNumber'), val(r, 'DocumentId'), val(r, 'Track'), val(r, 'IssueTagNumber'), val(r, 'KeySymbol'), val(r, 'MepsLanguage'), val(r, 'Type'), val(r, 'Specialty'), val(r, 'Edition')),
                 'chooseLeft', 'Location');
 
             updateForeignKeys(L.Bookmark, "LocationId", locMerge.changesLeft);
@@ -380,6 +449,25 @@
 
             updateForeignKeys(L.TagMap, "TagId", tagMerge.changesLeft);
             updateForeignKeys(R.TagMap, "TagId", tagMerge.changesRight);
+
+            // Home-screen favorites live in the single Tag of Type 0 ("Favorite"). Because both
+            // backups have that tag (same Type+Name), it collapses into one TagId and the two
+            // favorite lists get unioned by default. When the user asks to keep one side's list
+            // instead, drop the other side's favorite TagMap rows now (TagIds are already remapped
+            // to the merged id, so a Type-0 lookup on tagMerge.rows identifies them on both sides).
+            const favResolver = resolvers.favoritesResolver || 'merge';
+            if (favResolver === 'chooseLeft' || favResolver === 'chooseRight') {
+                const favTagIds = new Set(
+                    tagMerge.rows.filter(t => Number(val(t, 'Type')) === 0).map(t => val(t, 'TagId'))
+                );
+                if (favTagIds.size) {
+                    if (favResolver === 'chooseLeft') {
+                        R.TagMap = R.TagMap.filter(r => !favTagIds.has(val(r, 'TagId')));
+                    } else {
+                        L.TagMap = L.TagMap.filter(r => !favTagIds.has(val(r, 'TagId')));
+                    }
+                }
+            }
 
             statusCallback("Merging UserMarks & BlockRanges...");
 
@@ -486,15 +574,72 @@
             updateForeignKeys(L.Note, "UserMarkId", umMerge.changesLeft);
             updateForeignKeys(R.Note, "UserMarkId", umMerge.changesRight);
 
+            // Post-merge safety: UserMark enforces UNIQUE(UserMarkGuid), yet marks are deduped on a
+            // composite key (guid + block-range signature), so the same guid can survive twice — a
+            // highlight extended on one device, or an nwt/nwtsty Bible duplicate. Collapse every
+            // duplicated guid to a single UserMark (preferring the study-edition "nwtsty" location),
+            // drop the losers' BlockRanges, and repoint notes onto the kept mark. Without this the
+            // final INSERT would abort on the UNIQUE(UserMarkGuid) constraint. Mirrors
+            // go-library-merger's detectDuplicateUserMarks / tryDuplicateUserMarkCleanup.
+            {
+                const locKeySym = {};
+                for (const loc of locMerge.rows) locKeySym[String(val(loc, 'LocationId'))] = val(loc, 'KeySymbol');
+
+                const byGuid = {};
+                for (const um of umMerge.rows) {
+                    const g = val(um, 'UserMarkGuid');
+                    (byGuid[g] || (byGuid[g] = [])).push(um);
+                }
+
+                const remap = {}; // removed UserMarkId -> kept UserMarkId
+                const removedIds = new Set();
+                for (const g in byGuid) {
+                    const group = byGuid[g];
+                    if (group.length < 2) continue;
+                    const keeper = group.find(um => locKeySym[String(val(um, 'LocationId'))] === 'nwtsty') || group[0];
+                    const keeperId = val(keeper, 'UserMarkId');
+                    for (const um of group) {
+                        if (um === keeper) continue;
+                        const rid = val(um, 'UserMarkId');
+                        remap[rid] = keeperId;
+                        removedIds.add(rid);
+                    }
+                }
+
+                if (removedIds.size) {
+                    umMerge.rows = umMerge.rows.filter(um => !removedIds.has(val(um, 'UserMarkId')));
+                    brMerge.rows = brMerge.rows.filter(br => !removedIds.has(val(br, 'UserMarkId')));
+                    updateForeignKeys(L.Note, "UserMarkId", remap);
+                    updateForeignKeys(R.Note, "UserMarkId", remap);
+                }
+            }
+
             statusCallback("Merging Bookmarks...");
             let bmMerge = mergeTable(L.Bookmark, R.Bookmark, "BookmarkId",
                 r => uk(val(r, 'PublicationLocationId'), val(r, 'Slot')),
                 resolvers.bookmarkResolver, 'Bookmark');
 
             statusCallback("Merging Notes...");
+            // "keepBoth": instead of overwriting a note edited differently on both devices, keep
+            // both versions. Notes dedup on Guid, so we hand the right-side copy of any diverging
+            // shared note a fresh Guid; it then survives the merge as a distinct note (its own new
+            // NoteId, remapped onto TagMap via changesRight). Notes with identical content still
+            // collapse to one. Guid stays UNIQUE and (TagId, NoteId) stays satisfied.
+            let noteResolver = resolvers.noteResolver;
+            if (noteResolver === 'keepBoth') {
+                const leftByGuid = {};
+                for (const n of L.Note) leftByGuid[val(n, 'Guid')] = n;
+                for (const n of R.Note) {
+                    const ln = leftByGuid[val(n, 'Guid')];
+                    if (ln && (val(ln, 'Content') !== val(n, 'Content') || val(ln, 'Title') !== val(n, 'Title'))) {
+                        setVal(n, 'Guid', newGuid());
+                    }
+                }
+                noteResolver = 'chooseNewest'; // only identical-content notes can still collide
+            }
             let noteMerge = mergeTable(L.Note, R.Note, "NoteId",
                 r => uk(val(r, 'Guid')),
-                resolvers.noteResolver, 'Note');
+                noteResolver, 'Note');
 
             updateForeignKeys(L.TagMap, "NoteId", noteMerge.changesLeft);
             updateForeignKeys(R.TagMap, "NoteId", noteMerge.changesRight);

@@ -129,7 +129,24 @@
                             <button type="button" class="switch-btn" role="radio" aria-checked="false"
                                 data-target="noteResolver" data-value="chooseRight" data-i18n="keepRight">Keep <span
                                     class="badge-text-b">Backup B</span></button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="noteResolver" data-value="keepBoth" data-i18n="keepBoth">Keep Both</button>
                             <input type="hidden" id="noteResolver" value="chooseNewest">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label data-i18n="homeFavorites">Home Favorites</label>
+                        <div class="switch-container" role="radiogroup" aria-label="Home Favorites resolver">
+                            <button type="button" class="switch-btn active" role="radio" aria-checked="true"
+                                data-target="favoritesResolver" data-value="merge" data-i18n="mergeBoth">Merge Both</button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="favoritesResolver" data-value="chooseLeft" data-i18n="keepLeft">Keep <span
+                                    class="badge-text-a">Backup A</span></button>
+                            <button type="button" class="switch-btn" role="radio" aria-checked="false"
+                                data-target="favoritesResolver" data-value="chooseRight" data-i18n="keepRight">Keep <span
+                                    class="badge-text-b">Backup B</span></button>
+                            <input type="hidden" id="favoritesResolver" value="merge">
                         </div>
                     </div>
 
