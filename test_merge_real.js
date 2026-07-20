@@ -13,8 +13,8 @@ global.console.warn = () => {};
 require('./merger.js');
 
 const SCHEMA = `
-  CREATE TABLE Location (LocationId INTEGER PRIMARY KEY, BookNumber INT, ChapterNumber INT, DocumentId INT, Track INT, IssueTagNumber INT, KeySymbol TEXT, MepsLanguage INT, Type INT, Title TEXT);
-  CREATE TABLE UserMark (UserMarkId INTEGER PRIMARY KEY, ColorIndex INT, LocationId INT, StyleIndex INT, UserMarkGuid TEXT, Version INT);
+  CREATE TABLE Location (LocationId INTEGER PRIMARY KEY, BookNumber INT, ChapterNumber INT, DocumentId INT, Track INT, IssueTagNumber INT, KeySymbol TEXT, MepsLanguage INT, Type INT, Title TEXT, Specialty TEXT, Edition TEXT);
+  CREATE TABLE UserMark (UserMarkId INTEGER PRIMARY KEY, ColorIndex INT, LocationId INT, StyleIndex INT, UserMarkGuid TEXT UNIQUE, Version INT);
   CREATE TABLE BlockRange (BlockRangeId INTEGER PRIMARY KEY, BlockType INT, Identifier INT, StartToken INT, EndToken INT, UserMarkId INT);
   CREATE TABLE Bookmark (BookmarkId INTEGER PRIMARY KEY, LocationId INT, PublicationLocationId INT, Slot INT, Title TEXT, Snippet TEXT, BlockType INT, BlockIdentifier INT);
   CREATE TABLE Note (NoteId INTEGER PRIMARY KEY, Guid TEXT, UserMarkId INT, LocationId INT, Title TEXT, Content TEXT, LastModified TEXT, Created TEXT, BlockType INT, BlockIdentifier INT);
@@ -54,7 +54,7 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     const SQL = await initSqlJs();
 
     const A = await build(SQL, [
-        `INSERT INTO Location VALUES (1,1,NULL,NULL,NULL,NULL,'nwtsty',0,0,NULL);`,
+        `INSERT INTO Location VALUES (1,1,NULL,NULL,NULL,NULL,'nwtsty',0,0,NULL,NULL,NULL);`,
         `INSERT INTO Note VALUES (1,'guid-A-only',NULL,1,'NoteA','content A','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',NULL,NULL);`,
         `INSERT INTO Note VALUES (2,'guid-shared',NULL,1,'Shared','old text','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',NULL,NULL);`,
         `INSERT INTO Tag VALUES (1,1,'Study');`,
@@ -94,7 +94,7 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     const mergeStartMs = Date.now();
 
     const B = await build(SQL, [
-        `INSERT INTO Location VALUES (1,1,NULL,NULL,NULL,NULL,'nwtsty',0,0,NULL);`,
+        `INSERT INTO Location VALUES (1,1,NULL,NULL,NULL,NULL,'nwtsty',0,0,NULL,NULL,NULL);`,
         `INSERT INTO Note VALUES (1,'guid-B-only',NULL,1,'NoteB','content B','2024-02-01T00:00:00Z','2024-02-01T00:00:00Z',NULL,NULL);`,
         `INSERT INTO Note VALUES (2,'guid-shared',NULL,1,'Shared','NEW text','2024-03-01T00:00:00Z','2024-01-01T00:00:00Z',NULL,NULL);`,
         // B playlist: different item + media + marker
@@ -200,6 +200,119 @@ function assert(cond, msg) { if (cond) { pass++; console.log('  ✓ ' + msg); } 
     assert(idx.includes('IX_Note_Guid'), 'unique index IX_Note_Guid recreated');
 
     mdb.close();
+
+    // ---------------------------------------------------------------------------------------
+    // Focused scenarios for the go-library-merger alignment + new resolver options.
+    // ---------------------------------------------------------------------------------------
+    async function runMerge(sqlsA, sqlsB, resolvers) {
+        const rz = Object.assign({ bookmarkResolver: 'chooseLeft', markingResolver: 'chooseLeft', noteResolver: 'chooseNewest', inputFieldResolver: 'chooseLeft', favoritesResolver: 'merge' }, resolvers || {});
+        const za = await build(SQL, sqlsA);
+        const zb = await build(SQL, sqlsB);
+        let err = null, db = null;
+        try {
+            const blob = await window.mergeJWLibrary(za, zb, rz, () => {});
+            const buf = Buffer.from(await blob.arrayBuffer());
+            const z = await JSZip.loadAsync(buf);
+            db = new SQL.Database(await z.file('userData.db').async('uint8array'));
+        } catch (e) { err = e; }
+        const query = s => { try { const r = db.exec(s); return r.length ? r[0].values : []; } catch (e) { return 'ERR:' + e.message; } };
+        return { db, err, q: query, one: s => { const r = query(s); return Array.isArray(r) && r.length ? r[0][0] : null; } };
+    }
+
+    console.log('\n--- Location dedup keeps Specialty/Edition distinct (go-library-merger) ---');
+    {
+        // Two locations identical except Specialty must NOT be merged into one.
+        const a = [`INSERT INTO Location VALUES (1,10,NULL,NULL,NULL,0,'lff',0,0,NULL,'alpha',NULL);`];
+        const b = [`INSERT INTO Location VALUES (1,10,NULL,NULL,NULL,0,'lff',0,0,NULL,'beta',NULL);`];
+        const m = await runMerge(a, b);
+        assert(!m.err, 'merge with differing Specialty succeeds');
+        assert(m.one("SELECT COUNT(*) FROM Location") === 2, 'locations differing only by Specialty stay distinct (2 rows)');
+    }
+
+    console.log('\n--- Home Favorites resolver (merge / keep A / keep B) ---');
+    {
+        // Type-0 "Favorite" tag in both backups, each favoriting its own note.
+        const a = [
+            `INSERT INTO Note VALUES (1,'fav-A',NULL,NULL,'FA','ca','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',0,NULL);`,
+            `INSERT INTO Tag VALUES (1,0,'Favorite');`,
+            `INSERT INTO TagMap VALUES (1,NULL,NULL,1,1,0);`,
+        ];
+        const b = [
+            `INSERT INTO Note VALUES (1,'fav-B',NULL,NULL,'FB','cb','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',0,NULL);`,
+            `INSERT INTO Tag VALUES (1,0,'Favorite');`,
+            `INSERT INTO TagMap VALUES (1,NULL,NULL,1,1,0);`,
+        ];
+        const favCount = m => m.one("SELECT COUNT(*) FROM TagMap tm JOIN Tag t ON t.TagId=tm.TagId WHERE t.Type=0");
+        const hasGuid = (m, g) => m.one(`SELECT COUNT(*) FROM TagMap tm JOIN Tag t ON t.TagId=tm.TagId JOIN Note n ON n.NoteId=tm.NoteId WHERE t.Type=0 AND n.Guid='${g}'`) === 1;
+
+        const mMerge = await runMerge(a, b, { favoritesResolver: 'merge' });
+        assert(!mMerge.err && favCount(mMerge) === 2, 'favorites "merge": union of both lists (2 entries)');
+        assert(hasGuid(mMerge, 'fav-A') && hasGuid(mMerge, 'fav-B'), 'favorites "merge": both A and B favorites present');
+
+        const mLeft = await runMerge(a, b, { favoritesResolver: 'chooseLeft' });
+        assert(!mLeft.err && favCount(mLeft) === 1 && hasGuid(mLeft, 'fav-A') && !hasGuid(mLeft, 'fav-B'), 'favorites "chooseLeft": only Backup A list kept');
+
+        const mRight = await runMerge(a, b, { favoritesResolver: 'chooseRight' });
+        assert(!mRight.err && favCount(mRight) === 1 && hasGuid(mRight, 'fav-B') && !hasGuid(mRight, 'fav-A'), 'favorites "chooseRight": only Backup B list kept');
+    }
+
+    console.log('\n--- Notes "keepBoth" resolver ---');
+    {
+        // Same Guid, different content -> both kept (one re-guided). Identical content -> one.
+        const a = [`INSERT INTO Note VALUES (1,'note-x',NULL,NULL,'TA','content A','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',0,NULL);`,
+                   `INSERT INTO Note VALUES (2,'note-same',NULL,NULL,'TS','same','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z',0,NULL);`];
+        const b = [`INSERT INTO Note VALUES (1,'note-x',NULL,NULL,'TB','content B','2024-02-01T00:00:00Z','2024-02-01T00:00:00Z',0,NULL);`,
+                   `INSERT INTO Note VALUES (2,'note-same',NULL,NULL,'TS','same','2024-02-01T00:00:00Z','2024-02-01T00:00:00Z',0,NULL);`];
+        const m = await runMerge(a, b, { noteResolver: 'keepBoth' });
+        assert(!m.err, 'keepBoth merge succeeds');
+        assert(m.one("SELECT COUNT(*) FROM Note") === 3, 'keepBoth: diverging note duplicated, identical note deduped (3 total)');
+        assert(m.one("SELECT COUNT(*) FROM Note WHERE Content='content A'") === 1 && m.one("SELECT COUNT(*) FROM Note WHERE Content='content B'") === 1, 'keepBoth: both versions of the diverging note survive');
+        assert(m.one("SELECT COUNT(DISTINCT Guid) FROM Note") === m.one("SELECT COUNT(*) FROM Note"), 'keepBoth: every kept note has a unique Guid');
+
+        const mNewest = await runMerge(a, b, { noteResolver: 'chooseNewest' });
+        assert(mNewest.one("SELECT COUNT(*) FROM Note") === 2 && mNewest.one("SELECT COUNT(*) FROM Note WHERE Content='content B'") === 1, 'chooseNewest still overwrites (2 total, keeps newest)');
+    }
+
+    console.log('\n--- UserMark UNIQUE(UserMarkGuid) safety ---');
+    {
+        // Same UserMarkGuid on both sides but different block ranges: composite dedup keeps both,
+        // which would violate UNIQUE(UserMarkGuid) without the post-merge GUID cleanup.
+        const a = [
+            `INSERT INTO Location VALUES (1,1,1,NULL,NULL,0,'nwtsty',0,0,NULL,NULL,NULL);`,
+            `INSERT INTO UserMark VALUES (1,1,1,0,'mark-guid',1);`,
+            `INSERT INTO BlockRange VALUES (1,1,1,0,5,1);`,
+        ];
+        const b = [
+            `INSERT INTO Location VALUES (1,1,1,NULL,NULL,0,'nwtsty',0,0,NULL,NULL,NULL);`,
+            `INSERT INTO UserMark VALUES (1,1,1,0,'mark-guid',1);`,
+            `INSERT INTO BlockRange VALUES (1,1,1,0,12,1);`,
+        ];
+        const m = await runMerge(a, b);
+        assert(!m.err, 'merge with same UserMarkGuid but different block ranges succeeds (no UNIQUE violation)');
+        assert(m.one("SELECT COUNT(*) FROM UserMark WHERE UserMarkGuid='mark-guid'") === 1, 'duplicate UserMarkGuid collapsed to a single mark');
+    }
+
+    console.log('\n--- nwt -> nwtsty Bible edition migration (go-library-merger) ---');
+    {
+        // Same verse highlight (shared UserMarkGuid) on Standard edition (nwt) in A and Study
+        // edition (nwtsty) in B. A's simple Bible location is migrated so the two collapse.
+        const a = [
+            `INSERT INTO Location VALUES (1,1,1,NULL,NULL,0,'nwt',0,0,NULL,NULL,NULL);`,
+            `INSERT INTO UserMark VALUES (1,1,1,0,'verse-guid',1);`,
+            `INSERT INTO BlockRange VALUES (1,2,1,0,5,1);`,
+        ];
+        const b = [
+            `INSERT INTO Location VALUES (1,1,1,NULL,NULL,0,'nwtsty',0,0,NULL,NULL,NULL);`,
+            `INSERT INTO UserMark VALUES (1,1,1,0,'verse-guid',1);`,
+            `INSERT INTO BlockRange VALUES (1,2,1,0,5,1);`,
+        ];
+        const m = await runMerge(a, b);
+        assert(!m.err, 'nwt/nwtsty merge succeeds');
+        assert(m.one("SELECT COUNT(*) FROM Location") === 1, 'nwt Bible location migrated & merged into the nwtsty one (1 location)');
+        assert(m.one("SELECT KeySymbol FROM Location") === 'nwtsty', 'surviving Bible location is the study edition (nwtsty)');
+        assert(m.one("SELECT COUNT(*) FROM UserMark WHERE UserMarkGuid='verse-guid'") === 1, 'the shared verse highlight is kept once');
+    }
+
     console.log(`\n=== ${pass} passed, ${fail} failed ===`);
     process.exit(fail ? 1 : 0);
 })();
